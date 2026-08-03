@@ -1,0 +1,30 @@
+# Build artifacts
+OBJ/
+Listings/
+*.o
+*.crf
+*.lst
+*.axf
+*.hex
+*.map
+*.dep
+*.d
+*.bak
+
+# Keil user-specific files
+*.uvguix*
+*.uvopt
+*.uvoptx
+MDK-ARM/DebugConfig/
+MDK-ARM/RTE/
+MDK-ARM/JLinkSettings.ini
+MDK-ARM/EventRecorderStub.scvd
+MDK-ARM/E
+
+# Local tooling / logs
+.codewhale/
+build_codex.log
+*.log
+
+# IDE
+.vscode/
