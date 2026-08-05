@@ -1,12 +1,19 @@
-﻿/******************** (C) COPYRIGHT 2008 STMicroelectronics ********************
+/*
+ * ????: usb_prop.c
+ * ????: USB ?? / USB ????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
+/******************** (C) COPYRIGHT 2008 STMicroelectronics ********************
 * File Name          : usb_prop.c
-* 鏂囦欢?             : usb_prop.c
+* ??欢?             : usb_prop.c
 * Author             : MCD Application Team
-* 浣?              : MCD 搴旂敤鍥㈤槦
+* 浣?              : MCD 搴???㈤?
 * Version            : V2.2.0
 * Date               : 06/13/2008
 * Description        : All processings related to UsbHidDev Mouse Demo
-* 鎻忚堪                : USB HID 璁惧灞炴€у鐞嗭紙HID 榧犳爣婕旂ず绋嬪簭?********************************************************************************
+* ??堪                : USB HID 璁惧?灞??у????HID 榧??婕?ず绋???********************************************************************************
 *******************************************************************************/
 
 #include "sys.h"
@@ -27,6 +34,11 @@ static u8 *GetCustomDescriptor(u16 Length)
 {
   return Standard_GetDescriptorData(Length, &g_customDesc);
 }
+
+/* WCID / MS-OS request counters (incremented in the USB ISR, printed by main) */
+volatile u32 g_wcidReqCnt[8] = {0};
+volatile u32 g_descReqCnt[4] = {0};   /* 0=device, 1=config, 2=string, 3=BOS */
+volatile u32 g_eeReqCnt = 0;          /* 0xEE MS OS string descriptor */
 
 u32 ProtocolValue;
 
@@ -99,43 +111,7 @@ ONE_DESCRIPTOR String_Descriptor[4] =
   {(u8*)UsbHidDev_StringSerial, USB_HID_DEV_SIZ_STRING_SERIAL}
 };
 
-static u8 g_hidReportBuf[128];
-static u8 g_hidReportLen;
-static u8 g_hidPendingSetReportId;
-static u8 g_hidPendingSetReport;
 static u8 g_cdcPendingSetLineCoding;
-
-static u8 *GetReport_CopyRoutine(u16 Length)
-{
-  if (Length == 0)
-  {
-    pInformation->Ctrl_Info.Usb_wLength = g_hidReportLen;
-    return NULL;
-  }
-  return g_hidReportBuf + pInformation->Ctrl_Info.Usb_wOffset;
-}
-
-static u8 *UsbHidDev_SetReportData(u16 Length)
-{
-  if (Length == 0)
-  {
-    pInformation->Ctrl_Info.Usb_rLength = pInformation->USBwLength;
-    return NULL;
-  }
-  return g_hidReportBuf + pInformation->Ctrl_Info.Usb_rOffset;
-}
-
-static void UsbHidDev_ProcessPendingSetReport(void)
-{
-  if (g_hidPendingSetReport != 0U)
-  {
-    HID_Rx_Store(g_hidPendingSetReportId, g_hidReportBuf, g_hidReportLen);
-    g_hidPendingSetReport = 0U;
-    g_hidPendingSetReportId = 0U;
-    g_hidReportLen = 0U;
-    HID_ResetRequestState();
-  }
-}
 
 static u8 *CDC_GetLineCodingData(u16 Length)
 {
@@ -187,12 +163,10 @@ void UsbHidDev_Reset(void)
 
   SetEPType(ENDP1, EP_INTERRUPT);
   SetEPTxAddr(ENDP1, ENDP1_TXADDR);
-#if HW_USB_HID_SPEED_FULL
-  SetEPTxCount(ENDP1, 56);
-#else
-  SetEPTxCount(ENDP1, 8);
-#endif
-  SetEPRxStatus(ENDP1, EP_RX_DIS);
+  SetEPRxAddr(ENDP1, ENDP1_RXADDR);
+  SetEPRxCount(ENDP1, HID_EP_BUF_SIZE);
+  SetEPRxStatus(ENDP1, EP_RX_VALID);
+  SetEPTxCount(ENDP1, 0);
   SetEPTxStatus(ENDP1, EP_TX_NAK);
 
   SetEPType(ENDP2, EP_INTERRUPT);
@@ -253,9 +227,11 @@ void UsbHidDev_Status_Out(void)
 /* Return BOS Descriptor for USB 2.0 BOS request (WinUSB) */
 u8 *UsbHidDev_GetBOSDescriptor(u16 Length)
 {
+  g_descReqCnt[3]++;
 	g_customDesc.Descriptor = (u8 *)UsbHidDev_BOSDescriptor;
   g_customDesc.Descriptor_Size = sizeof(UsbHidDev_BOSDescriptor);
-  return g_customDesc.Descriptor;}
+  return Standard_GetDescriptorData(Length, &g_customDesc);
+}
 
 RESULT UsbHidDev_Data_Setup(u8 RequestNo)
 {
@@ -281,6 +257,7 @@ RESULT UsbHidDev_Data_Setup(u8 RequestNo)
       && (RequestNo == WINUSB_MS_VENDOR_CODE)
       && ((pInformation->USBwIndex == WINUSB_REQUEST_GET_DESCRIPTOR_SET) || (pInformation->USBwIndex == 0x0007)))
   {
+    g_wcidReqCnt[7]++;
     g_customDesc.Descriptor = (u8 *)UsbHidDev_MSOS20Descriptor;
     g_customDesc.Descriptor_Size = sizeof(UsbHidDev_MSOS20Descriptor);
     pInformation->Ctrl_Info.CopyData = GetCustomDescriptor;
@@ -294,8 +271,27 @@ RESULT UsbHidDev_Data_Setup(u8 RequestNo)
       && (RequestNo == WINUSB_MS_VENDOR_CODE)
       && (pInformation->USBwIndex == 0x0004))
   {
+    g_wcidReqCnt[4]++;
     g_customDesc.Descriptor = (u8 *)UsbHidDev_MSOS10CompatDescriptor;
     g_customDesc.Descriptor_Size = sizeof(UsbHidDev_MSOS10CompatDescriptor);
+    pInformation->Ctrl_Info.CopyData = GetCustomDescriptor;
+    pInformation->Ctrl_Info.Usb_wOffset = 0;
+    GetCustomDescriptor(0);
+    return USB_SUCCESS;
+  }
+
+  /* Microsoft OS 1.0 Extended Properties request (WinUSB DeviceInterfaceGUID) */
+  if ((pInformation->USBbmRequestType == 0xC0)
+      && (RequestNo == WINUSB_MS_VENDOR_CODE)
+      && (pInformation->USBwIndex == 0x0005))
+  {
+    g_wcidReqCnt[5]++;
+    if (pInformation->USBwValue0 != 3U)   /* interface 3 (WinUSB) only */
+    {
+      return USB_UNSUPPORT;
+    }
+    g_customDesc.Descriptor = (u8 *)UsbHidDev_MSOS10ExtPropsDescriptor;
+    g_customDesc.Descriptor_Size = sizeof(UsbHidDev_MSOS10ExtPropsDescriptor);
     pInformation->Ctrl_Info.CopyData = GetCustomDescriptor;
     pInformation->Ctrl_Info.Usb_wOffset = 0;
     GetCustomDescriptor(0);
@@ -321,31 +317,6 @@ RESULT UsbHidDev_Data_Setup(u8 RequestNo)
     CopyRoutine = UsbHidDev_GetProtocolValue;
   }
   else if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
-           && RequestNo == GET_REPORT)
-  {
-    u16 outLen;
-    u8 *buf;
-    HID_BeginReportRequest((u8)pInformation->USBwValue0, REQUEST_TYPE_HID_FIRST);
-    UsbHidDev_ProcessPendingSetReport();
-    buf = HID_GetReport_Buffer((u8)pInformation->USBwValue0,
-                               pInformation->USBwLength,
-                               &outLen);
-    if (buf && outLen)
-    {
-      g_hidReportLen = outLen;
-      {
-        u8 i;
-        for (i = 0; i < outLen; i++) g_hidReportBuf[i] = buf[i];
-      }
-      CopyRoutine = GetReport_CopyRoutine;
-    }
-    else
-    {
-      g_hidReportLen = 0;
-      CopyRoutine = GetReport_CopyRoutine;
-    }
-  }
-  else if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
            && RequestNo == CDC_GET_LINE_CODING
            && pInformation->USBwIndex0 == 1U)
   {
@@ -365,23 +336,6 @@ RESULT UsbHidDev_Data_Setup(u8 RequestNo)
     pInformation->Ctrl_Info.CopyData = CDC_SetLineCodingData;
     return USB_SUCCESS;
   }
-  else if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
-           && RequestNo == SET_REPORT)
-  {
-    if (pInformation->USBwLength == 0U || pInformation->USBwLength > sizeof(g_hidReportBuf))
-    {
-      return USB_UNSUPPORT;
-    }
-
-    HID_BeginReportRequest((u8)pInformation->USBwValue0, REQUEST_TYPE_HID_FIRST);
-    g_hidPendingSetReport = 1U;
-    g_hidPendingSetReportId = (u8)pInformation->USBwValue0;
-    g_hidReportLen = (u8)pInformation->USBwLength;
-    pInformation->Ctrl_Info.Usb_rOffset = 0;
-    pInformation->Ctrl_Info.Usb_rLength = pInformation->USBwLength;
-    pInformation->Ctrl_Info.CopyData = UsbHidDev_SetReportData;
-    return USB_SUCCESS;
-  }
 
   if (CopyRoutine == NULL)
   {
@@ -398,6 +352,14 @@ RESULT UsbHidDev_Data_Setup(u8 RequestNo)
 RESULT UsbHidDev_NoData_Setup(u8 RequestNo)
 {
   if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
+      && (RequestNo == SET_IDLE))
+  {
+    /* HID class request (interface 0). The device does not implement an
+       idle rate; accept with a zero-length status stage so Windows does
+       not see a STALL right after SET CONFIG. */
+    return USB_SUCCESS;
+  }
+  else if ((Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
       && (RequestNo == SET_PROTOCOL)
       && (pInformation->USBwIndex0 == 0U))
   {
@@ -421,11 +383,13 @@ RESULT UsbHidDev_NoData_Setup(u8 RequestNo)
 
 u8 *UsbHidDev_GetDeviceDescriptor(u16 Length)
 {
+  g_descReqCnt[0]++;
   return Standard_GetDescriptorData(Length, &Device_Descriptor);
 }
 
 u8 *UsbHidDev_GetConfigDescriptor(u16 Length)
 {
+  g_descReqCnt[1]++;
   return Standard_GetDescriptorData(Length, &Config_Descriptor);
 }
 
@@ -434,10 +398,12 @@ u8 *UsbHidDev_GetStringDescriptor(u16 Length)
   u8 wValue0 = pInformation->USBwValue0;
   if (wValue0 == 0xEE)
   {
+    g_eeReqCnt++;
     g_customDesc.Descriptor = (u8 *)UsbHidDev_StringMSOS;
     g_customDesc.Descriptor_Size = sizeof(UsbHidDev_StringMSOS);
     return Standard_GetDescriptorData(Length, &g_customDesc);
   }
+  g_descReqCnt[2]++;
   if (wValue0 >= 4)
   {
     return NULL;

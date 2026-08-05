@@ -1,4 +1,11 @@
 /*
+ * ????: usb_cdc_user.c
+ * ????: USB ?? / USB ????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
+/*
  * USB CDC user layer - forward raw bytes to the shared STK500 state machine.
  */
 
@@ -20,6 +27,10 @@ static uint8_t  cdcRingBuf[CDC_RX_RING_SIZE];
 static uint16_t cdcRingHead;
 static uint16_t cdcRingTail;
 static uint8_t  cdcRxPending;
+#if IS_DEBUG_USB
+static volatile uint8_t cdcDbgRxPending;
+static volatile uint8_t cdcDbgRxLen;
+#endif
 
 static usb_cdc_line_coding_t cdcLineCoding = {
     115200U,
@@ -108,6 +119,10 @@ void CDC_DataOut_Callback(void)
 
     PMAToUserBufferCopy(cdcRxPacket, ENDP3_RXADDR, rxLen);
     SetEPRxValid(ENDP3);
+#if IS_DEBUG_USB
+    cdcDbgRxLen = rxLen;
+    cdcDbgRxPending = 1U;
+#endif
 
     ringBufWrite(cdcRxPacket, rxLen);
     cdcRxPending = 1U;
@@ -123,6 +138,15 @@ void CDC_Task(void)
         while (ringBufRead(&byte))
             stkSetRxChar(STK_DATA_SOURCE_USB_CDC, byte);
     }
+#if IS_DEBUG_USB
+    if (cdcDbgRxPending != 0U)
+    {
+        cdcDbgRxPending = 0U;
+        uart1_WriteString("CDC RX len=");
+        CdcDebugWriteDec(cdcDbgRxLen);
+        uart1_WriteString("\r\n");
+    }
+#endif
 
     if (stkGetTxCount(STK_DATA_SOURCE_USB_CDC) != 0U && !cdcTxBusy)
         CDC_StartNextTxPacket();
@@ -213,5 +237,12 @@ static void CDC_StartNextTxPacket(void)
     }
 
     if (i > 0U)
+    {
         (void)CDC_SendData(cdcTxPacket, i);
+#if IS_DEBUG_USB
+        uart1_WriteString("CDC TX len=");
+        CdcDebugWriteDec(i);
+        uart1_WriteString("\r\n");
+#endif
+    }
 }

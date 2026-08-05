@@ -1,22 +1,29 @@
-﻿#include "sys.h"
+/*
+ * ????: usb_desc.c
+ * ????: USB ?? / USB ????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
+#include "sys.h"
 #include "usb_lib.h"
 #include "Hardware_Config.h"
 #include "usb_desc.h"
 
 /* USB Standard Device Descriptor
- * VID/PID 缁х画 AVR-Doper HID ; 璁剧被涓鸿锟?IAD)? */
+ * VID/PID 缁х画 AVR-Doper HID ; 璁剧被涓鸿?锟?IAD)? */
 const u8 UsbHidDev_DeviceDescriptor[USB_HID_DEV_SIZ_DEVICE_DESC] =
 {
     0x12,
     USB_DEVICE_DESCRIPTOR_TYPE,
-    0x00, 0x02,                         /* bcdUSB = 0x0200 (USB 2.0) */
+    (u8)(USB_BCD_USB & 0xFF), (u8)(USB_BCD_USB >> 8),
     0xEF,
     0x02,
     0x01,
     0x40,
-    0xC5, 0x16,
-    0xDF, 0x05,
-    0x00, 0x01,
+    (u8)(USB_VID & 0xFF), (u8)(USB_VID >> 8),
+    (u8)(USB_PID & 0xFF), (u8)(USB_PID >> 8),
+    (u8)(USB_BCD_DEVICE & 0xFF), (u8)(USB_BCD_DEVICE >> 8),
     1,
     2,
     3,
@@ -38,7 +45,7 @@ const u8 UsbHidDev_ConfigDescriptor[USB_HID_DEV_SIZ_CONFIG_DESC] =
     USB_INTERFACE_DESCRIPTOR_TYPE,
     0x00,
     0x00,
-    0x01,
+    0x02,
     0x03,
     0x00,
     0x00,
@@ -52,17 +59,21 @@ const u8 UsbHidDev_ConfigDescriptor[USB_HID_DEV_SIZ_CONFIG_DESC] =
     REPORT_DESCRIPTOR,
     USB_HID_DEV_SIZ_REPORT_DESC, 0x00,
 
+    /********** EP1 IN: HID Interrupt IN (7 bytes) **********/
     0x07,
     USB_ENDPOINT_DESCRIPTOR_TYPE,
     0x81,
     0x03,
-#if HW_USB_HID_SPEED_FULL
-    0x38, 0x00,
+    0x20, 0x00,
     0x01,
-#else
-    0x08, 0x00,
-    0x0A,
-#endif
+
+    /********** EP1 OUT: HID Interrupt OUT (7 bytes) **********/
+    0x07,
+    USB_ENDPOINT_DESCRIPTOR_TYPE,
+    0x01,
+    0x03,
+    0x20, 0x00,
+    0x01,
 
     0x08,
     USB_INTERFACE_ASSOCIATION_DESCRIPTOR_TYPE,
@@ -173,6 +184,7 @@ const u8 UsbHidDev_ConfigDescriptor[USB_HID_DEV_SIZ_CONFIG_DESC] =
 
 const u8 UsbHidDev_ReportDescriptor[USB_HID_DEV_SIZ_REPORT_DESC] =
 {
+    /* Usage Page (Vendor Defined) / Usage / Application Collection */
     0x06, 0x00, 0xff,
     0x09, 0x01,
     0xa1, 0x01,
@@ -180,25 +192,29 @@ const u8 UsbHidDev_ReportDescriptor[USB_HID_DEV_SIZ_REPORT_DESC] =
     0x26, 0xff, 0x00,
     0x75, 0x08,
 
+    /* Input Report 1 (device->host): 14 data bytes, 15 bytes total incl. ID */
     0x85, 0x01,
     0x95, 0x0e,
     0x09, 0x00,
-    0xb2, 0x02, 0x01,
+    0x81, 0x02,
 
+    /* Input Report 2 (device->host): 30 data bytes, 31 bytes total incl. ID */
     0x85, 0x02,
     0x95, 0x1e,
     0x09, 0x00,
-    0xb2, 0x02, 0x01,
+    0x81, 0x02,
 
-    0x85, 0x03,
-    0x95, 0x3e,
+    /* Output Report 1 (host->device): 14 data bytes, 15 bytes total incl. ID */
+    0x85, 0x01,
+    0x95, 0x0e,
     0x09, 0x00,
-    0xb2, 0x02, 0x01,
+    0x91, 0x02,
 
-    0x85, 0x04,
-    0x95, 0x7e,
+    /* Output Report 2 (host->device): 30 data bytes, 31 bytes total incl. ID */
+    0x85, 0x02,
+    0x95, 0x1e,
     0x09, 0x00,
-    0xb2, 0x02, 0x01,
+    0x91, 0x02,
 
     0xc0
 };
@@ -214,21 +230,21 @@ const u8 UsbHidDev_StringVendor[USB_HID_DEV_SIZ_STRING_VENDOR] =
 {
     USB_HID_DEV_SIZ_STRING_VENDOR,
     USB_STRING_DESCRIPTOR_TYPE,
-    'o', 0, 'b', 0, 'd', 0, 'e', 0, 'v', 0, '.', 0, 'a', 0, 't', 0
+    USB_STRING_VENDOR
 };
 
 const u8 UsbHidDev_StringProduct[USB_HID_DEV_SIZ_STRING_PRODUCT] =
 {
     USB_HID_DEV_SIZ_STRING_PRODUCT,
     USB_STRING_DESCRIPTOR_TYPE,
-    'D',0,'F',0,'M',0,' ',0,'B',0,'o',0,'o',0,'t',0,'l',0,'o',0,'a',0,'d',0,'e',0,'r',0
+    USB_STRING_PRODUCT
 };
 
 const u8 UsbHidDev_StringSerial[USB_HID_DEV_SIZ_STRING_SERIAL] =
 {
     USB_HID_DEV_SIZ_STRING_SERIAL,
     USB_STRING_DESCRIPTOR_TYPE,
-    'd',0,'f',0,'m',0,'I',0,'n',0,'L',0,'i',0,'n',0,'e',0,'P',0,'r',0,'o',0,'g',0,'r',0,'a',0,'m',0,'m',0,'e',0,'r',0
+    USB_STRING_SERIAL
 };
 
 const u8 UsbHidDev_BOSDescriptor[USB_HID_DEV_SIZ_BOS_DESC] =
@@ -245,7 +261,7 @@ const u8 UsbHidDev_BOSDescriptor[USB_HID_DEV_SIZ_BOS_DESC] =
     0xC7,0x4C, 0x9C,0xD2,0x65,0x9D,      /* 9CD2-659D-9E64-8A9F                   */
     0x9E,0x64,0x8A,0x9F,
     0x00,0x00,0x03,0x06,                 /* dwWindowsVersion = 0x06030000 */
-    0xB6,0x00,                            /* wMSOSDescriptorSetTotalLength = 182 */
+    0xB2,0x00,                            /* wMSOSDescriptorSetTotalLength = 178 */
     0x07,                                 /* bMS_VendorCode */
     0x00                                  /* bAltEnumCode */
 };
@@ -256,35 +272,34 @@ const u8 UsbHidDev_MSOS20Descriptor[USB_HID_DEV_SIZ_MSOS20_DESC] =
     0x0A,0x00,
     0x00,0x00,
     0x00,0x00,0x03,0x06,
-    0xB6,0x00,                    /* Total length = 182 bytes */
+    0xB2,0x00,                    /* Total length = 178 bytes */
 
     /* Configuration Subset Header (8 bytes) */
     0x08,0x00,
     0x01,0x00,
     0x01,0x00,
-    0xAC,0x00,
+    0xA8,0x00,
 
     /* Function Subset Header Interface 3 (8 bytes) */
     0x08,0x00,
     0x02,0x00,
     0x03,0x00,
-    0xA4,0x00,
+    0xA0,0x00,
 
     /* Compatible ID Descriptor (20 bytes) */
     0x14,0x00,
     0x03,0x00,
     'W','I','N','U','S','B',0,0,
     0,0,0,0,0,0,0,0,
-    0,0,0,0,
 
     /* Registry Property Descriptor - DeviceInterfaceGUID */
-    0x86,0x00,
+    0x84,0x00,
     0x04,0x00,
     0x07,0x00,
-    0x44,0x00,
+    0x2A,0x00,
     'D',0,'e',0,'v',0,'i',0,'c',0,'e',0,'I',0,'n',0,'t',0,'e',0,'r',0,'f',0,'a',0,'c',0,'e',0,'G',0,'U',0,'I',0,'D',0,'s',0,0,0,
     0x50,0x00,
-    '{',0,'9',0,'B',0,'0',0,'D',0,'1',0,'C',0,'A',0,'8',0,'-',0,'2',0,'D',0,'6',0,'8',0,'-',0,'4',0,'B',0,'A',0,'2',0,'-',0,'9',0,'E',0,'7',0,'2',0,'-',0,'4',0,'0',0,'1',0,'0',0,'5',0,'5',0,'5',0,'1',0,'0',0,'0',0,'1',0,'}',0,0,0
+    USB_MSOS_GUID_UTF16, 0, 0
 };
 
 /* MS OS 1.0 Compatible ID Descriptor (WinUSB for interface 3) */
@@ -300,6 +315,27 @@ const u8 UsbHidDev_MSOS10CompatDescriptor[USB_HID_DEV_SIZ_MSOS10_COMPAT_DESC] =
     'W','I','N','U','S','B',0,0,  /* CompatibleID = "WINUSB" */
     0,0,0,0,0,0,0,0,     /* SubCompatibleID = empty */
     0,0,0,0,0,0           /* Reserved2[6] */
+};
+
+/* MS OS 1.0 Extended Properties Descriptor (WinUSB DeviceInterfaceGUID for interface 3)
+ * Ported from TeenyUSB sample/composite COMP_IF3_WCIDProperties (MS OS 1.0 / WCID).
+ */
+const u8 UsbHidDev_MSOS10ExtPropsDescriptor[USB_HID_DEV_SIZ_MSOS10_EXT_PROPS_DESC] =
+{
+    0x8E,0x00,0x00,0x00,          /* dwLength = 142 */
+    0x00,0x01,                    /* bcdVersion = 0x0100 */
+    0x05,0x00,                    /* wIndex = 0x0005 */
+    0x01,0x00,                    /* wCount = 1 */
+
+    0x84,0x00,0x00,0x00,          /* dwSize = 132 */
+    0x01,0x00,0x00,0x00,          /* dwPropertyDataType = REG_SZ (0x0001) */
+    0x28,0x00,                    /* wPropertyNameLength = 40 */
+    'D',0,'e',0,'v',0,'i',0,'c',0,'e',0,
+    'I',0,'n',0,'t',0,'e',0,'r',0,'f',0,
+    'a',0,'c',0,'e',0,'G',0,'U',0,'I',0,
+    'D',0,0,0,                    /* "DeviceInterfaceGUID" */
+    0x4E,0x00,0x00,0x00,          /* dwPropertyDataLength = 78 */
+    USB_MSOS_GUID_UTF16
 };
 
 /* MS OS 1.0 String Descriptor (index 0xEE) */

@@ -1,15 +1,22 @@
+/*
+ * ????: FontGB2312.h
+ * ????: ???? / 12864 ??????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
 #ifndef __FONT_GB2312_H__
 #define __FONT_GB2312_H__
 
 #include "sys.h"
 #include "Lcd12864.h"
 
-// å­—åº“ç±»å‹å¸¸é‡
-#define GB2312_CHN_FONT_SIZE    32  // 15Ã—16 æ±‰å­—å­—æ¨¡å­—èŠ‚æ•°
-#define GB2312_ASC8x16_SIZE     16  // 8Ã—16 ASCIIå­—æ¨¡å­—èŠ‚æ•°
-#define GB2312_ASC8x16_BASE     0x3CF80UL  // 8Ã—16 ASCIIç²—ä½“å­—ç¬¦èµ·å§‹åœ°å€
+// ×Ö¿âÀàĞÍ³£Á¿
+#define GB2312_CHN_FONT_SIZE    32  // 15¡Á16 ºº×Ö×ÖÄ£×Ö½ÚÊı
+#define GB2312_ASC8x16_SIZE     16  // 8¡Á16 ASCII×ÖÄ£×Ö½ÚÊı
+#define GB2312_ASC8x16_BASE     0x3CF80UL  // 8¡Á16 ASCII´ÖÌå×Ö·ûÆğÊ¼µØÖ·
 
-// å‡½æ•°å£°æ˜
+// º¯ÊıÉùÃ÷
 void GB2312_SPI_Init(void);
 uint8_t GB2312_SPI_ReadByte(uint8_t data);
 void GB2312_SPI_ReadData(uint32_t addr, uint8_t *buf, uint16_t len);

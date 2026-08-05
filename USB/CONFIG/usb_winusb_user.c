@@ -1,4 +1,11 @@
-﻿/*
+/*
+ * ????: usb_winusb_user.c
+ * ????: USB ?? / USB ????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312 ???
+ */
+/*
  * USB WinUSB Bulk user-layer implementation
  */
 
@@ -17,6 +24,9 @@ static u8   g_winusb_rx_buf[WINUSB_RX_BUF_SIZE];
 static u16  g_winusb_rx_head = 0;
 static u16  g_winusb_rx_tail = 0;
 static u8   g_winusb_tx_busy = 0;
+static u8   g_winusb_tx_pkt[64];
+
+static void WinUSB_StartNextTxPacket(void);
 
 #if IS_DEBUG_APP
 static void WinUsbDebugWriteDec(u16 value)
@@ -93,7 +103,7 @@ void WinUSB_OUT_Callback(void)
 }
 
 /* Send data on EP4 IN bulk endpoint. Returns 0 on queued, 1 if busy/invalid. */
-u8 WinUSB_Bulk_Send(const u8 *buf, u16 len)
+static u8 WinUSB_Bulk_Send(const u8 *buf, u16 len)
 {
     WinUSB_TxPollDone();
 
@@ -106,11 +116,16 @@ u8 WinUSB_Bulk_Send(const u8 *buf, u16 len)
     SetEPTxCount(ENDP4, len);
     g_winusb_tx_busy = 1U;
     SetEPTxStatus(ENDP4, EP_TX_VALID);
+#if IS_DEBUG_APP
+    uart1_WriteString("WINUSB TX len=");
+    WinUsbDebugWriteDec(len);
+    uart1_WriteString("\r\n");
+#endif
     return 0U;
 }
 
 /* Receive data from ring buffer */
-u16 WinUSB_Bulk_Recv(u8 *buf, u16 maxLen)
+static u16 WinUSB_Bulk_Recv(u8 *buf, u16 maxLen)
 {
     u16 i;
 
@@ -122,11 +137,19 @@ u16 WinUSB_Bulk_Recv(u8 *buf, u16 maxLen)
         buf[i] = g_winusb_rx_buf[g_winusb_rx_tail];
         g_winusb_rx_tail = (u16)((g_winusb_rx_tail + 1U) % WINUSB_RX_BUF_SIZE);
     }
+#if IS_DEBUG_APP
+    if (i > 0U)
+    {
+        uart1_WriteString("WINUSB RX len=");
+        WinUsbDebugWriteDec(i);
+        uart1_WriteString("\r\n");
+    }
+#endif
     return i;
 }
 
 /* Query available byte count */
-u16 WinUSB_Bulk_Available(void)
+static u16 WinUSB_Bulk_Available(void)
 {
     /* SPSC ring: head is written only by the USB ISR, tail only by the main
      * loop. Never keep a shared counter here - a read-modify-write on a shared
@@ -135,8 +158,51 @@ u16 WinUSB_Bulk_Available(void)
 }
 
 /* Query TX busy state, with a polling fallback in case the IN callback is missed. */
-u8 WinUSB_Bulk_TxBusy(void)
+static u8 WinUSB_Bulk_TxBusy(void)
 {
     WinUSB_TxPollDone();
     return g_winusb_tx_busy;
+}
+
+/* ---- TX: push pending STK response via EP4 IN (main-loop context) ---- */
+static void WinUSB_StartNextTxPacket(void)
+{
+    u16 chunk;
+    u16 i;
+    int c;
+
+    if (WinUSB_Bulk_TxBusy()) return;
+
+    chunk = stkGetTxCount(STK_DATA_SOURCE_USB_WINUSB);
+    if (chunk == 0U) return;
+    if (chunk > 64U) chunk = 64U;
+
+    for (i = 0U; i < chunk; i++)
+    {
+        c = stkGetTxByte(STK_DATA_SOURCE_USB_WINUSB);
+        if (c < 0) break;
+        g_winusb_tx_pkt[i] = (u8)c;
+    }
+
+    if (i > 0U)
+        (void)WinUSB_Bulk_Send(g_winusb_tx_pkt, i);
+}
+
+/* ---- Single main-loop entry: drain RX ring + flush TX (EP4) ---- */
+void WinUSB_Task(void)
+{
+    u8  buf[256];
+    u16 n, i;
+
+    n = WinUSB_Bulk_Available();
+    if (n > 0U)
+    {
+        if (n > sizeof(buf)) n = sizeof(buf);
+        n = WinUSB_Bulk_Recv(buf, n);
+        for (i = 0U; i < n; i++)
+            stkSetRxChar(STK_DATA_SOURCE_USB_WINUSB, buf[i]);
+    }
+
+    if (stkGetTxCount(STK_DATA_SOURCE_USB_WINUSB) != 0U)
+        WinUSB_StartNextTxPacket();
 }

@@ -1,61 +1,68 @@
-ï»¿#include "spi.h"
-//SPIé©±åŠ¨ ä»£ç 
+/*
+ * ????: spi.c
+ * ????: ???? / SPI ????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
+#include "spi.h"
+//SPIÇý¶¯ ´úÂë
 
-//ä»¥ä¸‹æ˜¯SPIæ¨¡å—çš„åˆå§‹åŒ–ä»£ç ï¼Œé…ç½®æˆä¸»æœºæ¨¡å¼ï¼Œè®¿é—®SD Card/W25Q64/NRF24L01
-//SPIå£åˆå§‹åŒ–
-//è¿™é‡Œé’ˆæ˜¯å¯¹SPI2çš„åˆå§‹åŒ–
+//ÒÔÏÂÊÇSPIÄ£¿éµÄ³õÊ¼»¯´úÂë£¬ÅäÖÃ³ÉÖ÷»úÄ£Ê½£¬·ÃÎÊSD Card/W25Q64/NRF24L01
+//SPI¿Ú³õÊ¼»¯
+//ÕâÀïÕëÊÇ¶ÔSPI2µÄ³õÊ¼»¯
 void SPI2_Init(void)
 {
-    RCC->APB2ENR|=1<<3;      //PORTBæ—¶é’Ÿä½¿èƒ½
-    RCC->APB1ENR|=1<<14;     //SPI2æ—¶é’Ÿä½¿èƒ½
-    //è¿™é‡Œåªé’ˆå¯¹SPIå£åˆå§‹åŒ–
+    RCC->APB2ENR|=1<<3;      //PORTBÊ±ÖÓÊ¹ÄÜ
+    RCC->APB1ENR|=1<<14;     //SPI2Ê±ÖÓÊ¹ÄÜ
+    //ÕâÀïÖ»Õë¶ÔSPI¿Ú³õÊ¼»¯
     GPIOB->CRH&=0X000FFFFF;
-    GPIOB->CRH|=0XBBB00000;  //PB13/14/15å¤ç”¨
-    GPIOB->ODR|=0X7<<13;     //PB13/14/15ä¸Šæ‹‰
-    SPI2->CR1|=0<<10;        //å…¨åŒå·¥æ¨¡å¼
-    SPI2->CR1|=1<<9;         //è½¯ä»¶nssç®¡ç†
+    GPIOB->CRH|=0XBBB00000;  //PB13/14/15¸´ÓÃ
+    GPIOB->ODR|=0X7<<13;     //PB13/14/15ÉÏÀ­
+    SPI2->CR1|=0<<10;        //È«Ë«¹¤Ä£Ê½
+    SPI2->CR1|=1<<9;         //Èí¼þnss¹ÜÀí
     SPI2->CR1|=1<<8;
 
-    SPI2->CR1|=1<<2;         //SPIä¸»æœº
-    SPI2->CR1|=0<<11;        //8bitæ•°æ®æ ¼å¼
-    SPI2->CR1|=1<<1;         //ç©ºé—²æ¨¡å¼ä¸‹SCKä¸º1 CPOL=1
-    SPI2->CR1|=1<<0;         //æ•°æ®é‡‡æ ·ä»Žç¬¬äºŒä¸ªæ—¶é—´è¾¹æ²¿å¼€å§‹,CPHA=1
-    //å¯¹SPI2å±žäºŽAPB1çš„å¤–è®¾.æ—¶é’Ÿé¢‘çŽ‡æœ€å¤§ä¸º36M.
+    SPI2->CR1|=1<<2;         //SPIÖ÷»ú
+    SPI2->CR1|=0<<11;        //8bitÊý¾Ý¸ñÊ½
+    SPI2->CR1|=1<<1;         //¿ÕÏÐÄ£Ê½ÏÂSCKÎª1 CPOL=1
+    SPI2->CR1|=1<<0;         //Êý¾Ý²ÉÑù´ÓµÚ¶þ¸öÊ±¼ä±ßÑØ¿ªÊ¼,CPHA=1
+    //¶ÔSPI2ÊôÓÚAPB1µÄÍâÉè.Ê±ÖÓÆµÂÊ×î´óÎª36M.
     SPI2->CR1|=3<<3;         //Fsck=Fpclk1/256
     SPI2->CR1|=0<<7;         //MSBfirst
-    SPI2->CR1|=1<<6;         //SPIè®¾å¤‡ä½¿èƒ½
-    SPI2_ReadWriteByte(0xff);//å¯åŠ¨ä¼ è¾“
+    SPI2->CR1|=1<<6;         //SPIÉè±¸Ê¹ÄÜ
+    SPI2_ReadWriteByte(0xff);//Æô¶¯´«Êä
 }
-//SPI2é€Ÿåº¦è®¾ç½®å‡½æ•°
+//SPI2ËÙ¶ÈÉèÖÃº¯Êý
 //SpeedSet:0~7
-//SPIé€Ÿåº¦=fAPB1/2^(SpeedSet+1)
-//APB1æ—¶é’Ÿä¸€èˆ¬ä¸º36Mhz
+//SPIËÙ¶È=fAPB1/2^(SpeedSet+1)
+//APB1Ê±ÖÓÒ»°ãÎª36Mhz
 void SPI2_SetSpeed(u8 SpeedSet)
 {
-    SpeedSet&=0X07;          //é™åˆ¶èŒƒå›´
+    SpeedSet&=0X07;          //ÏÞÖÆ·¶Î§
     SPI2->CR1&=0XFFC7;
-    SPI2->CR1|=SpeedSet<<3;  //è®¾ç½®SPI2é€Ÿåº¦
-    SPI2->CR1|=1<<6;         //SPIè®¾å¤‡ä½¿èƒ½
+    SPI2->CR1|=SpeedSet<<3;  //ÉèÖÃSPI2ËÙ¶È
+    SPI2->CR1|=1<<6;         //SPIÉè±¸Ê¹ÄÜ
 }
-//SPI2 è¯»å†™ä¸€ä¸ªå­—èŠ‚
-//TxData:è¦å†™å…¥çš„å­—èŠ‚
-//è¿”å›žå€¼:è¯»å–åˆ°çš„å­—èŠ‚
+//SPI2 ¶ÁÐ´Ò»¸ö×Ö½Ú
+//TxData:ÒªÐ´ÈëµÄ×Ö½Ú
+//·µ»ØÖµ:¶ÁÈ¡µ½µÄ×Ö½Ú
 u8 SPI2_ReadWriteByte(u8 TxData)
 {
     u16 retry=0;
-    while((SPI2->SR&1<<1)==0)       //ç­‰å¾…å‘é€åŒºç©º
+    while((SPI2->SR&1<<1)==0)       //µÈ´ý·¢ËÍÇø¿Õ
     {
         retry++;
-        if(retry>=0XFFFE)return 0;  //è¶…æ—¶é€€å‡º
+        if(retry>=0XFFFE)return 0;  //³¬Ê±ÍË³ö
     }
-    SPI2->DR=TxData;                //å‘é€ä¸€ä¸ªbyte
+    SPI2->DR=TxData;                //·¢ËÍÒ»¸öbyte
     retry=0;
-    while((SPI2->SR&1<<0)==0)       //ç­‰å¾…æŽ¥æ”¶å®Œä¸€ä¸ªbyte
+    while((SPI2->SR&1<<0)==0)       //µÈ´ý½ÓÊÕÍêÒ»¸öbyte
     {
         retry++;
-        if(retry>=0XFFFE)return 0;  //è¶…æ—¶é€€å‡º
+        if(retry>=0XFFFE)return 0;  //³¬Ê±ÍË³ö
     }
-    return SPI2->DR;                //è¿”å›žæ”¶åˆ°çš„æ•°æ®
+    return SPI2->DR;                //·µ»ØÊÕµ½µÄÊý¾Ý
 }
 
 void SPI2_ReadBuf(u8 *buf, u16 len)

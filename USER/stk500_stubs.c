@@ -1,6 +1,13 @@
+/*
+ * ????: stk500_stubs.c
+ * ????: ????? / USER
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312 ???
+ */
 /**
  * @file    stk500_stubs.c
- * @brief   STM32F103VE Bootloader — Flash Update State Machine
+ * @brief   STM32F103VE Bootloader ? Flash Update State Machine
  *
  * Three-channel frame buffer (HID / CDC / WinUSB) → STK500v2 parser
  * → flash programming of application area.
@@ -10,7 +17,6 @@
 #include "delay.h"
 #include "sys.h"
 #include "Stk500Protocol.h"
-#include "usb_winusb_user.h"
 #include "hw_config.h"
 #include "eeprom.h"
 #include "usart.h"
@@ -63,10 +69,11 @@ typedef struct {
 
 static stkChannel_t g_chan[NUM_SOURCES];
 
-/* ── TX response buffer (one response at a time) ───────── */
-static uint8_t  g_txBuf[STK_FRAME_MAX];
-static uint16_t g_txLen;
-static uint8_t  g_txSource;
+/* Per-source TX response buffers: a reply is staged only in the channel
+ * that produced it, so a response can never leak to another interface. */
+static uint8_t  g_txBuf[NUM_SOURCES][STK_FRAME_MAX];
+static uint16_t g_txLen[NUM_SOURCES];
+static uint16_t g_txPos[NUM_SOURCES];
 
 /* ── Flash programming state ───────────────────────────── */
 static uint32_t g_flashAddr;
@@ -104,11 +111,13 @@ static uint8_t flashIsAppArea(uint32_t addr, uint16_t len);
 #if IS_DEBUG_USB
 static void stkDebugWriteHex32(uint32_t value);
 static void stkDebugPrintAddress(const char *tag, uint32_t addr);
+static const char *stkSourceName(uint8_t src);
+static void stkDebugTag(const char *tag, uint8_t src);
 #endif
 
-/* ══════════════════════════════════════════════════════════
+/* ??????????????????????????????????????????????????????????
  *  Public API
- * ══════════════════════════════════════════════════════════ */
+ * ?????????????????????????????????????????????????????????? */
 
 void stkSetRxChar(uint8_t source, uint8_t data)
 {
@@ -125,20 +134,28 @@ void stkFeedBytes(uint8_t source, const uint8_t *data, uint16_t len)
 
 uint16_t stkPoll(void)
 {
-    return g_txLen;
+    uint16_t total = 0U;
+    uint8_t  i;
+    for (i = 0U; i < NUM_SOURCES; i++)
+        total += g_txLen[i];
+    return total;
 }
 
 uint16_t stkGetTxCount(uint8_t source)
 {
-    return (g_txLen > 0 && g_txSource == source) ? g_txLen : 0;
+    return (source < NUM_SOURCES) ? g_txLen[source] : 0U;
 }
 
 int stkGetTxByte(uint8_t source)
 {
-    static uint16_t txPos;
-    if (g_txLen == 0 || g_txSource != source) { txPos = 0; return -1; }
-    if (txPos >= g_txLen) { txPos = 0; g_txLen = 0; return -1; }
-    return g_txBuf[txPos++];
+    if (source >= NUM_SOURCES) return -1;
+    if (g_txPos[source] >= g_txLen[source])
+    {
+        g_txPos[source] = 0U;
+        g_txLen[source] = 0U;
+        return -1;
+    }
+    return g_txBuf[source][g_txPos[source]++];
 }
 
 uint32_t stkGetFlashAddress(void)
@@ -168,7 +185,7 @@ void stkService(void)
     if (g_startAppPending == 0U) {
         return;
     }
-    if (g_txLen != 0U) {
+    if (g_txLen[0] != 0U || g_txLen[1] != 0U || g_txLen[2] != 0U) {
         return;
     }
     delay_ms(200);
@@ -189,48 +206,9 @@ void stkService(void)
     g_startAppPending = 0U;
 }
 
-/* ══════════════════════════════════════════════════════════
- *  Channel polling (called from main loop)
- * ══════════════════════════════════════════════════════════ */
-
-void stkWinUSBTask(void)
-{
-    uint8_t buf[256];
-    uint16_t n, i;
-
-    n = WinUSB_Bulk_Available();
-    if (n == 0) return;
-    if (n > sizeof(buf)) n = sizeof(buf);
-    n = WinUSB_Bulk_Recv(buf, n);
-    for (i = 0; i < n; i++)
-        stkSetRxChar(STK_DATA_SOURCE_USB_WINUSB, buf[i]);
-}
-
-void stkWinUSBFlush(void)
-{
-    uint16_t n;
-
-    if (g_txLen == 0U || g_txSource != STK_DATA_SOURCE_USB_WINUSB) return;
-    if (WinUSB_Bulk_TxBusy()) return;
-
-    n = g_txLen;
-    if (n > 64U) {
-        n = 64U;
-    }
-
-    if (WinUSB_Bulk_Send(g_txBuf, n) == 0U) {
-        if (n < g_txLen) {
-            memmove(g_txBuf, g_txBuf + n, g_txLen - n);
-            g_txLen -= n;
-        } else {
-            g_txLen = 0U;
-        }
-    }
-}
-
-/* ══════════════════════════════════════════════════════════
+/* ??????????????????????????????????????????????????????????
  *  Frame parser
- * ══════════════════════════════════════════════════════════ */
+ * ?????????????????????????????????????????????????????????? */
 
 static void stkResetChannel(uint8_t src)
 {
@@ -265,9 +243,9 @@ static void stkProcessByte(uint8_t src, uint8_t c)
     }
 }
 
-/* ══════════════════════════════════════════════════════════
+/* ??????????????????????????????????????????????????????????
  *  Command dispatcher
- * ══════════════════════════════════════════════════════════ */
+ * ?????????????????????????????????????????????????????????? */
 
 static void stkProcessFrame(uint8_t src)
 {
@@ -287,7 +265,10 @@ static void stkProcessFrame(uint8_t src)
     payload = &ch->buf[6];
     if (bodyLen > 0) bodyLen--;
 #if IS_DEBUG_USB
-    stkDebugPrintAddress("FRAME", cmd);
+    stkDebugTag("FRAME", src);
+    uart1_WriteString(" addr=0x");
+    stkDebugWriteHex32(cmd);
+    uart1_WriteString("\r\n");
 #endif
 
     switch (cmd) {
@@ -308,14 +289,16 @@ static void stkProcessFrame(uint8_t src)
         break;
     case CMD_LEAVE_PROGMODE:
 #if IS_DEBUG_USB
-        uart1_WriteString("LEAVE:case\r\n");
+        stkDebugTag("LEAVE", src);
+        uart1_WriteString(":case\r\n");
 #endif
         if (!g_inProgMode) {
             stkBuildResponse(src, STATUS_CMD_FAILED, NULL, 0);
             break;
         }
 #if IS_DEBUG_USB
-        uart1_WriteString("LEAVE:flush\r\n");
+        stkDebugTag("LEAVE", src);
+        uart1_WriteString(":flush\r\n");
 #endif
         if (!pageBufferFlush()) {
             stkBuildResponse(src, STATUS_CMD_FAILED, NULL, 0);
@@ -323,13 +306,15 @@ static void stkProcessFrame(uint8_t src)
         }
         g_inProgMode = 0;
 #if IS_DEBUG_USB
-        uart1_WriteString("LEAVE:eeprom\r\n");
+        stkDebugTag("LEAVE", src);
+        uart1_WriteString(":eeprom\r\n");
 #endif
         if (g_programByteCount > 0U && appVectorLooksValid()) {
             markApplicationValid();
         }
 #if IS_DEBUG_USB
-        uart1_WriteString("LEAVE:resp\r\n");
+        stkDebugTag("LEAVE", src);
+        uart1_WriteString(":resp\r\n");
 #endif
         stkBuildResponse(src, STATUS_CMD_OK, NULL, 0);
         break;
@@ -340,7 +325,10 @@ static void stkProcessFrame(uint8_t src)
                           ((uint32_t)payload[2] << 8)  |
                            (uint32_t)payload[3];
 #if IS_DEBUG_USB
-            stkDebugPrintAddress("LOAD", g_flashAddr);
+            stkDebugTag("LOAD", src);
+            uart1_WriteString(" addr=0x");
+            stkDebugWriteHex32(g_flashAddr);
+            uart1_WriteString("\r\n");
 #endif
             stkBuildResponse(src, STATUS_CMD_OK, NULL, 0);
         } else {
@@ -425,9 +413,9 @@ static void stkProcessFrame(uint8_t src)
     }
 }
 
-/* ══════════════════════════════════════════════════════════
+/* ??????????????????????????????????????????????????????????
  *  Response builder
- * ══════════════════════════════════════════════════════════ */
+ * ?????????????????????????????????????????????????????????? */
 
 static void stkBuildResponse(uint8_t src, uint8_t status, const uint8_t *data, uint16_t len)
 {
@@ -447,17 +435,17 @@ static void stkBuildResponse(uint8_t src, uint8_t status, const uint8_t *data, u
         for (i = 0; i < rpos; i++) xv ^= resp[i];
         resp[rpos++] = xv;
     }
-    if (rpos <= sizeof(g_txBuf)) {
-        memcpy(g_txBuf, resp, rpos);
-        g_txLen    = rpos;
-        g_txSource = src;
+    if (src < NUM_SOURCES && rpos <= sizeof(g_txBuf[src])) {
+        memcpy(g_txBuf[src], resp, rpos);
+        g_txLen[src] = rpos;
+        g_txPos[src] = 0U;
     }
 }
 
 
-/* ══════════════════════════════════════════════════════════
+/* ??????????????????????????????????????????????????????????
  *  Flash operations (CMSIS registers)
- * ══════════════════════════════════════════════════════════ */
+ * ?????????????????????????????????????????????????????????? */
 
 static void flashUnlock(void)
 {
@@ -534,6 +522,25 @@ static void stkDebugPrintAddress(const char *tag, uint32_t addr)
     uart1_WriteString(" addr=0x");
     stkDebugWriteHex32(addr);
     uart1_WriteString("\r\n");
+}
+
+static const char *stkSourceName(uint8_t src)
+{
+    switch (src)
+    {
+    case STK_DATA_SOURCE_USB_HID:    return "HID";
+    case STK_DATA_SOURCE_USB_CDC:    return "CDC";
+    case STK_DATA_SOURCE_USB_WINUSB: return "WINUSB";
+    default:                         return "?";
+    }
+}
+
+static void stkDebugTag(const char *tag, uint8_t src)
+{
+    uart1_WriteString(tag);
+    uart1_WriteString("[");
+    uart1_WriteString(stkSourceName(src));
+    uart1_WriteString("]");
 }
 #endif
 

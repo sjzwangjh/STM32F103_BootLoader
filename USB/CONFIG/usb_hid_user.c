@@ -1,22 +1,40 @@
 /*
- * USB HID�û���ʵ�� - HID�����շ���Ӧ�ò�ӿ�?
- */
-
-/*
- * USB HID Data Relay Layer - STK500 protocol integration
- * Ported from AVR-Doper firmware/main.c (C. Starkjohann, obdev.at)
+ * USB HID User Implementation - Interrupt Endpoint Transport
+ *
+ * HID data flows through EP1 interrupt IN/OUT endpoints, NOT EP0 feature
+ * reports. The USB ISR only copies data between PMA and the ring buffer;
+ * all STK command processing happens in the main loop via HID_Task().
+ *
+ * Report format (preserved from the previous feature-report transport):
+ *   byte 0 = Report ID (1-2)
+ *   byte 1 = payload length in THIS report
+ *   byte 2.. = STK message bytes
  */
 
 #include "sys.h"
 #include "usb_hid_user.h"
+#include "usb_lib.h"
+#include "usb_conf.h"
 #include "Stk500Protocol.h"
 #include "Hardware_Config.h"
 #include "usart.h"
 
-uint8_t  g_HidReportId = 0;
-RequestType_t g_RequestType = REQUEST_TYPE_IDLE;
+/* ---- EP1 OUT: ring buffer for bytes from host ---- */
+static uint8_t  g_hidRxBuf[HID_RX_RING_SIZE];
+static uint16_t g_hidRxHead;
+static uint16_t g_hidRxTail;
+static volatile uint8_t  g_hidRxStalled;   /* EP1 OUT held in NAK: ring was full */
+static volatile uint16_t g_hidRxDrop;      /* overflow counter (debug) */
+
+/* ---- EP1 IN: TX state ---- */
+static uint8_t  g_hidTxBusy;
 
 #if IS_DEBUG_USB
+static volatile uint8_t g_hidDbgRxPending;
+static volatile uint8_t g_hidDbgRxLen;
+static volatile uint8_t g_hidDbgTxPending;
+static volatile uint8_t g_hidDbgTxLen;
+
 static void HidDebugWriteDec(uint16_t value)
 {
     char buf[6];
@@ -38,150 +56,218 @@ static void HidDebugWriteDec(uint16_t value)
 }
 #endif
 
-static uint16_t HID_GetPayloadSize(uint8_t reportId)
+/* ---- Helper: choose report ID based on payload size ---- */
+static uint8_t HID_ChooseReportId(uint16_t payloadLen)
 {
-    switch (reportId)
+    if (payloadLen <= 13U) return 1U;   /* Report 1: 15 bytes total */
+    return 2U;                           /* Report 2: 31 bytes total */
+}
+
+/* ---- Helper: free space in RX ring (one slot reserved) ---- */
+static uint16_t HID_RingSpace(void)
+{
+    uint16_t used = (uint16_t)((g_hidRxHead - g_hidRxTail) & (HID_RX_RING_SIZE - 1U));
+    return (uint16_t)(HID_RX_RING_SIZE - 1U - used);
+}
+
+/* ---- Helper: poll for missed EP1 IN completion (self-heal) ---- */
+static void HID_PollTxDone(void)
+{
+    if (g_hidTxBusy == 0U) return;
+    if ((_GetENDPOINT(ENDP1) & EP_CTR_TX) != 0U)
     {
-        case 1: return 14U;
-        case 2: return 30U;
-        case 3: return 62U;
-        case 4: return 126U;
-        default: return 0U;
+        ClearEP_CTR_TX(ENDP1);
+        g_hidTxBusy = 0U;
+    }
+    else if (_GetEPTxStatus(ENDP1) == EP_TX_NAK)
+    {
+        g_hidTxBusy = 0U;
     }
 }
 
-void HID_BeginReportRequest(uint8_t reportId, RequestType_t requestType)
+/* =================================================================
+ * EP1 OUT Callback (USB ISR context)
+ * ================================================================= */
+void HID_EP1_OUT_Callback(void)
 {
-    g_HidReportId = reportId;
-    g_RequestType = requestType;
-}
+    uint8_t  buf[HID_EP_BUF_SIZE];
+    uint16_t i, rx_count, payloadLen;
 
-void HID_Rx_Store(uint8_t reportId, const uint8_t *data, uint8_t len)
-{
-    uint8_t i;
-    uint8_t stkPayloadStart;
-    uint8_t stkLen;
-
-#if IS_DEBUG_USB
-    uart1_WriteString("HID RX len=");
-    HidDebugWriteDec(len);
-    uart1_WriteString("\r\n");
-#endif
-
-    if (data == NULL || len == 0U)
+    rx_count = GetEPRxCount(ENDP1);
+    if (rx_count == 0U || rx_count > HID_EP_BUF_SIZE)
     {
-        HID_ResetRequestState();
+        SetEPRxStatus(ENDP1, EP_RX_VALID);
         return;
     }
 
-    /*
-     * AVR-Doper hid_send_feature_report() ���͸�ʽ:
-     *   byte 0  = Report ID (0x01-0x04)
-     *   byte 1  = �� report �ڵ���Ч STK �ֽ���
-     *   byte 2..= STK message bytes
-     *
-     * hidapi �ᰴ���� Feature Report ���ȷ��ͣ�β������������ֽڡ�?
-     * ��������ϸ�? byte1 ȡ��Ч���ݣ����ܰ�����ֽ��ͽ�? STK ״̬����
-     */
-    if (len >= 2U &&
-        data[0] == reportId &&
-        reportId >= 1U && reportId <= 4U)
+    PMAToUserBufferCopy(buf, ENDP1_RXADDR, rx_count);
+
+    /* Report format: [Report ID][payloadLen][STK bytes...] */
+    if (buf[0] != 1U && buf[0] != 2U)
     {
-        stkPayloadStart = 2U;
-        stkLen = data[1];
-        if (stkLen > (uint8_t)(len - stkPayloadStart))
-        {
-            stkLen = (uint8_t)(len - stkPayloadStart);
-        }
-    }
-    else
-    {
-        /* ���ݾɵ�������: �ҵ� STK_STX ��ֻ�������ʵ�ʴ��ڵ��ֽڡ�? */
-        stkPayloadStart = len;
-        stkLen = 0U;
-        for (i = 0; i < len; i++)
-        {
-            if (data[i] == STK_STX)
-            {
-                stkPayloadStart = i;
-                stkLen = (uint8_t)(len - i);
-                break;
-            }
-        }
+        SetEPRxStatus(ENDP1, EP_RX_VALID);
+        return;
     }
 
-    for (i = stkPayloadStart; i < (uint8_t)(stkPayloadStart + stkLen) && i < len; i++)
+    payloadLen = buf[1];
+    if (payloadLen > (uint16_t)(rx_count - 2U))
+        payloadLen = (uint16_t)(rx_count - 2U);
+    if (buf[0] == 1U && payloadLen > 13U)
+        payloadLen = 13U;
+    else if (buf[0] == 2U && payloadLen > 29U)
+        payloadLen = 29U;
+    if (payloadLen == 0U)
     {
-        stkSetRxChar(STK_DATA_SOURCE_USB_HID, data[i]);
+        SetEPRxStatus(ENDP1, EP_RX_VALID);
+        return;
     }
 
-    stkPoll();
-    HID_ResetRequestState();
+    if (payloadLen > HID_RingSpace())
+    {
+        /* Ring full: keep EP1 OUT in NAK so the host retries later. */
+        g_hidRxDrop++;
+        g_hidRxStalled = 1U;
+        return;
+    }
+
+    for (i = 0U; i < payloadLen; i++)
+    {
+        uint16_t next = (uint16_t)((g_hidRxHead + 1U) & (HID_RX_RING_SIZE - 1U));
+        g_hidRxBuf[g_hidRxHead] = buf[2U + i];
+        g_hidRxHead = next;
+    }
+
+#if IS_DEBUG_USB
+    g_hidDbgRxLen = (uint8_t)payloadLen;
+    g_hidDbgRxPending = 1U;
+#endif
+    SetEPRxStatus(ENDP1, EP_RX_VALID);
 }
+
+/* =================================================================
+ * EP1 IN Callback (USB ISR context)
+ * ================================================================= */
+void HID_EP1_IN_Callback(void)
+{
+    g_hidTxBusy = 0U;
+}
+
+/* =================================================================
+ * HID_Task (main loop context)
+ *
+ * Single main-loop entry for the HID interface: drains the EP1 OUT ring
+ * and feeds the STK parser, re-arms EP1 OUT after a ring-full stall, then
+ * flushes pending STK responses via EP1 IN.
+ * ================================================================= */
+static void HID_TxFlush(void);
+
 void HID_Task(void)
 {
-    stkPoll();
+    while (g_hidRxHead != g_hidRxTail)
+    {
+        uint8_t c = g_hidRxBuf[g_hidRxTail];
+        g_hidRxTail = (uint16_t)((g_hidRxTail + 1U) & (HID_RX_RING_SIZE - 1U));
+        stkSetRxChar(STK_DATA_SOURCE_USB_HID, c);
+    }
+
+    if (g_hidRxStalled != 0U)
+    {
+        g_hidRxStalled = 0U;
+        SetEPRxStatus(ENDP1, EP_RX_VALID);
+    }
+
+#if IS_DEBUG_USB
+    if (g_hidDbgRxPending != 0U)
+    {
+        g_hidDbgRxPending = 0U;
+        uart1_WriteString("HID RX len=");
+        HidDebugWriteDec(g_hidDbgRxLen);
+        uart1_WriteString("\r\n");
+    }
+    if (g_hidDbgTxPending != 0U)
+    {
+        g_hidDbgTxPending = 0U;
+        uart1_WriteString("HID TX len=");
+        HidDebugWriteDec(g_hidDbgTxLen);
+        uart1_WriteString("\r\n");
+    }
+    if (g_hidRxDrop != 0U)
+    {
+        uart1_WriteString("HID RX drop=");
+        HidDebugWriteDec(g_hidRxDrop);
+        uart1_WriteString("\r\n");
+        g_hidRxDrop = 0U;
+    }
+#endif
+    /* TX: push pending STK response bytes via EP1 IN */
+    HID_TxFlush();
 }
 
-uint8_t HID_Rx_IsAvailable(void)
-{
-    return 0;
-}
-
-uint8_t HID_Rx_Read(uint8_t *buf, uint8_t maxLen)
-{
-    (void)buf;
-    (void)maxLen;
-    return 0;
-}
-
-uint8_t *HID_GetReport_Buffer(uint8_t reportId, uint16_t requestedLen, uint16_t *pOutLen)
+/* =================================================================
+ * HID_GetTxBuffer (internal)
+ *
+ * Builds a HID input report from the STK TX buffer.
+ * Report format: [reportId][payloadLen][stkData...]
+ * ================================================================= */
+static uint8_t *HID_GetTxBuffer(uint16_t *pOutLen)
 {
     static uint8_t reportBuf[HID_REPORT_MAX_LOAD];
-    uint16_t reportLen;
-    uint16_t payloadSize;
-    uint16_t txCount;
-    uint16_t idx;
-    int c;
+    uint16_t txCount, idx;
+    uint8_t  reportId, reportSize;
+    int      c;
 
-    if (pOutLen == NULL) { return NULL; }
+    if (pOutLen == NULL) return NULL;
 
-    payloadSize = HID_GetPayloadSize(reportId);
-    if (payloadSize == 0U) { *pOutLen = 0; return NULL; }
+    txCount = stkGetTxCount(STK_DATA_SOURCE_USB_HID);
+    if (txCount == 0U)
+    {
+        *pOutLen = 0U;
+        return NULL;
+    }
 
-    reportLen = (uint16_t)(payloadSize + 1U);
-    if (requestedLen != 0U && requestedLen < reportLen) { reportLen = requestedLen; }
-    if (reportLen > HID_REPORT_MAX_LOAD) { reportLen = HID_REPORT_MAX_LOAD; }
-    if (reportLen < 2U) { *pOutLen = 0; return NULL; }
+    for (idx = 0U; idx < HID_REPORT_MAX_LOAD; idx++) reportBuf[idx] = 0;
 
-    /* Zero-fill the whole output report */
-    for (idx = 0; idx < reportLen; idx++) { reportBuf[idx] = 0; }
+    reportId   = HID_ChooseReportId(txCount);
+    reportSize = (reportId == 1U) ? 15U : 31U;
 
     reportBuf[0] = reportId;
-
-    txCount = (uint16_t)stkGetTxCount(STK_DATA_SOURCE_USB_HID);
     reportBuf[1] = 0U;
 
     idx = 2U;
-    while (idx < reportLen && (c = stkGetTxByte(STK_DATA_SOURCE_USB_HID)) >= 0)
-    {
+    while (idx < (uint16_t)reportSize && (c = stkGetTxByte(STK_DATA_SOURCE_USB_HID)) >= 0)
         reportBuf[idx++] = (uint8_t)c;
-    }
+
     reportBuf[1] = (uint8_t)(idx - 2U);
+    *pOutLen = (uint16_t)reportSize;
 
 #if IS_DEBUG_USB
-    uart1_WriteString("HID TX len=");
-    HidDebugWriteDec(reportLen);
-    uart1_WriteString("\r\n");
+    g_hidDbgTxLen = (uint8_t)reportSize;
+    g_hidDbgTxPending = 1U;
 #endif
-    *pOutLen = reportLen;
     return reportBuf;
 }
 
-void HID_ResetRequestState(void)
+/* =================================================================
+ * HID_TxFlush (main loop context)
+ *
+ * Pushes pending STK TX data to the host via EP1 IN. One report per
+ * call; long replies are split over successive main-loop iterations.
+ * ================================================================= */
+static void HID_TxFlush(void)
 {
-    g_RequestType = REQUEST_TYPE_IDLE;
-    g_HidReportId = 0;
+    uint16_t outLen;
+    uint8_t *buf;
+
+    if (stkGetTxCount(STK_DATA_SOURCE_USB_HID) <= 0) return;
+
+    HID_PollTxDone();
+    if (g_hidTxBusy != 0U) return;
+
+    buf = HID_GetTxBuffer(&outLen);
+    if (buf == NULL || outLen == 0U) return;
+
+    UserToPMABufferCopy(buf, ENDP1_TXADDR, outLen);
+    SetEPTxCount(ENDP1, outLen);
+    g_hidTxBusy = 1U;
+    SetEPTxStatus(ENDP1, EP_TX_VALID);
 }
-
-

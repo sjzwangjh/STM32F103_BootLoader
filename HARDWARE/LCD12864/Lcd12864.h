@@ -1,21 +1,23 @@
+/*
+ * ????: Lcd12864.h
+ * ????: ???? / 12864 ??????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
 #ifndef __LCD12864_H
 #define __LCD12864_H
 
 #include "sys.h"
 #include "FontGB2312.h"
+#include "Hardware_Config.h"
+
 
 //-------- 底层接口(由用户实现，适配硬件连接) -------------
 //----- 包含字库的 LCD，两者共享一个 SPI 接口，用 CS 区分 -----
 //----- 共 12 个引脚，PIN1~4 是 GB2312 字库，PIN8~12 是 LCD -----
-#define HW_LCD12864_GB2312_MOSI     C,5     // 硬件1脚、9脚连接 PC5
-#define HW_GB2312_MISO              B,0     // 硬件2脚连接 PB0，GB2312 字库数据输入(MISO)
-#define HW_LCD12864_GB2312_SCK      B,1     // 硬件3脚、8脚连接 PB1，GB2312 字库时钟(SCK)
-#define HW_GB2312_CS                E,7     // 硬件4脚连接 PE7，GB2312 字库片选(CS)
 // 硬件5脚、7脚连接 3.3V 电源
 // 硬件6脚连接 GND
-#define HW_LCD12864_RS              E,8     // 硬件10脚连接 PE8，LCD12864 数据/命令选择(DC)
-#define HW_LCD12864_RST             B,10    // 硬件11脚连接 PB10，LCD12864 复位(RST)
-#define HW_LCD12864_CS              E,10    // 硬件12脚连接 PE10，LCD12864 片选(CS)
 
 // LCD 命令宏定义 (ST7567)
 #define LCD_CMD_RESET               0xe2    // 软复位

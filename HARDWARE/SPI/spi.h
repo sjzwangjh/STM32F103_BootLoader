@@ -1,9 +1,16 @@
-ï»¿#ifndef __SPI_H
+/*
+ * ????: spi.h
+ * ????: ???? / SPI ????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
+#ifndef __SPI_H
 #define __SPI_H
 #include "sys.h"
-//SPIé©±åŠ¨ ä»£ç 
+//SPIÇı¶¯ ´úÂë
 
-// SPIæ€»çº¿é€Ÿåº¦è®¾ç½®
+// SPI×ÜÏßËÙ¶ÈÉèÖÃ
 #define SPI_SPEED_2         0
 #define SPI_SPEED_4         1
 #define SPI_SPEED_8         2
@@ -13,10 +20,10 @@
 #define SPI_SPEED_128       6
 #define SPI_SPEED_256       7
 
-void SPI2_Init(void);                    //åˆå§‹åŒ–SPI2å£
-void SPI2_SetSpeed(u8 SpeedSet);         //è®¾ç½®SPI2é€Ÿåº¦
-u8   SPI2_ReadWriteByte(u8 TxData);      //SPI2æ€»çº¿è¯»å†™ä¸€ä¸ªå­—èŠ‚
-void SPI2_ReadBuf(u8 *buf, u16 len);     //SPI2è¿ç»­è¯»å–å¤šä¸ªå­—èŠ‚
-void SPI2_WriteBuf(const u8 *buf, u16 len); //SPI2è¿ç»­å†™å…¥å¤šä¸ªå­—èŠ‚
+void SPI2_Init(void);                    //³õÊ¼»¯SPI2¿Ú
+void SPI2_SetSpeed(u8 SpeedSet);         //ÉèÖÃSPI2ËÙ¶È
+u8   SPI2_ReadWriteByte(u8 TxData);      //SPI2×ÜÏß¶ÁĞ´Ò»¸ö×Ö½Ú
+void SPI2_ReadBuf(u8 *buf, u16 len);     //SPI2Á¬Ğø¶ÁÈ¡¶à¸ö×Ö½Ú
+void SPI2_WriteBuf(const u8 *buf, u16 len); //SPI2Á¬ĞøĞ´Èë¶à¸ö×Ö½Ú
 
 #endif

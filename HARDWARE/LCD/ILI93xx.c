@@ -1,3 +1,10 @@
+/*
+ * ????: ILI93xx.c
+ * ????: ???? / TFT LCD ????
+ * ????: ???
+ * ????: ??????? Bootloader ??????????????
+ * ????: ????????????????????????????? GB2312/CP936 ?????
+ */
 #include "lcd.h"
 #include "stdlib.h"
 #include "font.h" 
@@ -2124,12 +2131,12 @@ void LCD_Init(void)
 		//设置屏幕的点数以及扫描的起始行
 		LCD_WriteReg(0x61,0x0001); //Driver Output Control
 		LCD_WriteReg(0x6A,0x0000); //Vertical Scroll Control
-		LCD_WriteReg(0x80,0x0000); //Display Position – Partial Display 1
-		LCD_WriteReg(0x81,0x0000); //RAM Address Start – Partial Display 1
+		LCD_WriteReg(0x80,0x0000); //Display Position ? Partial Display 1
+		LCD_WriteReg(0x81,0x0000); //RAM Address Start ? Partial Display 1
 		LCD_WriteReg(0x82,0x0000); //RAM address End - Partial Display 1
-		LCD_WriteReg(0x83,0x0000); //Display Position – Partial Display 2
-		LCD_WriteReg(0x84,0x0000); //RAM Address Start – Partial Display 2
-		LCD_WriteReg(0x85,0x0000); //RAM address End – Partail Display2
+		LCD_WriteReg(0x83,0x0000); //Display Position ? Partial Display 2
+		LCD_WriteReg(0x84,0x0000); //RAM Address Start ? Partial Display 2
+		LCD_WriteReg(0x85,0x0000); //RAM address End ? Partail Display2
 		LCD_WriteReg(0x90,0x0013); //Frame Cycle Control
 		LCD_WriteReg(0x92,0x0000);  //Panel Interface Control 2
 		LCD_WriteReg(0x93,0x0003); //Panel Interface control 3
