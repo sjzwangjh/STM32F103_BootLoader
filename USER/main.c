@@ -84,7 +84,7 @@ int main(void)
     LCD_Init();
     LCD_DisplayString58(1, 12, "DIF Micro");
     LCD_DisplayGraphic(1, 1, 64, 64, bmp_defeng_Logo);
-    LCD_DisplayGB2312String(3, 9, "DFM");
+    LCD_DisplayGB2312String(3, 9, "BootLoader");
 
     while (1)
     {
