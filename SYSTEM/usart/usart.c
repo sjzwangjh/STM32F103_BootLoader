@@ -1,4 +1,4 @@
-/*
+ï»¿/*
  * ????: usart.c
  * ????: ?????? / ????
  * ????: ???
@@ -8,30 +8,30 @@
 #include "usart.h"	  
 #include <string.h>
 
-//Èç¹ûÊ¹ÓÃucos,Ôò°üÀ¨ÏÂÃæµÄÍ·ÎÄ¼þ¼´¿É.
+//å¦‚æžœä½¿ç”¨ucos,åˆ™åŒ…æ‹¬ä¸‹é¢çš„å¤´æ–‡ä»¶å³å¯.
 #if SYSTEM_SUPPORT_UCOS
-#include "includes.h"					//ucos Ê¹ÓÃ	  
+#include "includes.h"					//ucos ä½¿ç”¨	  
 #endif
 
-/* ========== ¾É½ÓÊÕ½Ó¿Ú£¨Ïòºó¼æÈÝ£© ========== */
+/* ========== æ—§æŽ¥æ”¶æŽ¥å£ï¼ˆå‘åŽå…¼å®¹ï¼‰ ========== */
 #if EN_USART1_RX
 u8 USART_RX_BUF[USART_REC_LEN];
 u16 USART_RX_STA=0;
 #endif
 
-/* ========== »·ÐÎ»º³åÇø ========== */
+/* ========== çŽ¯å½¢ç¼“å†²åŒº ========== */
 
-/* ---- ½ÓÊÕ»·ÐÎ»º³åÇø ---- */
+/* ---- æŽ¥æ”¶çŽ¯å½¢ç¼“å†²åŒº ---- */
 static u8      rxRingBuf[UART1_RB_SIZE];
-static volatile u16 rxRingWr;       // Ð´ÈëË÷Òý£¨ÖÐ¶ÏÖÐÐÞ¸Ä£©
-static volatile u16 rxRingRd;       // ¶ÁÈ¡Ë÷Òý£¨Ö÷Ñ­»·ÖÐÐÞ¸Ä£©
+static volatile u16 rxRingWr;       // å†™å…¥ç´¢å¼•ï¼ˆä¸­æ–­ä¸­ä¿®æ”¹ï¼‰
+static volatile u16 rxRingRd;       // è¯»å–ç´¢å¼•ï¼ˆä¸»å¾ªçŽ¯ä¸­ä¿®æ”¹ï¼‰
 
-/* ---- ·¢ËÍ»·ÐÎ»º³åÇø ---- */
+/* ---- å‘é€çŽ¯å½¢ç¼“å†²åŒº ---- */
 static u8      txRingBuf[UART1_RB_SIZE];
-static volatile u16 txRingWr;       // Ð´ÈëË÷Òý£¨Ö÷Ñ­»·ÖÐÐÞ¸Ä£©
-static volatile u16 txRingRd;       // ¶ÁÈ¡Ë÷Òý£¨ÖÐ¶ÏÖÐÐÞ¸Ä£©
+static volatile u16 txRingWr;       // å†™å…¥ç´¢å¼•ï¼ˆä¸»å¾ªçŽ¯ä¸­ä¿®æ”¹ï¼‰
+static volatile u16 txRingRd;       // è¯»å–ç´¢å¼•ï¼ˆä¸­æ–­ä¸­ä¿®æ”¹ï¼‰
 
-/* ========== ¹¤¾ß£ºÅÐ¶Ï»·ÐÎ»º³åÇø¿Õ/Âú ========== */
+/* ========== å·¥å…·ï¼šåˆ¤æ–­çŽ¯å½¢ç¼“å†²åŒºç©º/æ»¡ ========== */
 #define RING_EMPTY(wr, rd)  ((wr) == (rd))
 #define RING_FULL(wr, rd)   (((wr) + 1) & UART1_RB_MASK) == (rd)
 #define RING_COUNT(wr, rd)  ((u16)(((wr) - (rd)) & UART1_RB_MASK))
@@ -39,7 +39,7 @@ static volatile u16 txRingRd;       // ¶ÁÈ¡Ë÷Òý£¨ÖÐ¶ÏÖÐÐÞ¸Ä£©
 
 
 
-/* ========== printf ÖØ¶¨ÏòÖ§³Ö ========== */
+/* ========== printf é‡å®šå‘æ”¯æŒ ========== */
 #if 1
 #pragma import(__use_no_semihosting)             
 struct __FILE 
@@ -58,7 +58,7 @@ int fputc(int ch, FILE *f)
 	while((USART1->SR&0X40)==0);
 	USART1->DR = (u8) ch;      
 #else
-    /* °ÑÊý¾ÝÑ¹Èë·¢ËÍ»·ÐÎ»º³åÇø£¨²»µÈ´ý£¬Ö±½ÓÓÃ if ÅÐ¶Ï£©*/
+    /* æŠŠæ•°æ®åŽ‹å…¥å‘é€çŽ¯å½¢ç¼“å†²åŒºï¼ˆä¸ç­‰å¾…ï¼Œç›´æŽ¥ç”¨ if åˆ¤æ–­ï¼‰*/
     u16 wr, rd;
     
     __disable_irq();
@@ -75,7 +75,7 @@ int fputc(int ch, FILE *f)
     else
     {
         __enable_irq();
-        /* »º³åÇøÂúÊ±£¬ÍË»¯ÎªÂÖÑ¯·¢ËÍ£¨²»»áËÀËø£©*/
+        /* ç¼“å†²åŒºæ»¡æ—¶ï¼Œé€€åŒ–ä¸ºè½®è¯¢å‘é€ï¼ˆä¸ä¼šæ­»é”ï¼‰*/
         while((USART1->SR & 0x40) == 0);
         USART1->DR = (u8)ch;
     }
@@ -84,8 +84,8 @@ int fputc(int ch, FILE *f)
 }
 #endif 
 
-/* ========== ¹«¿ª½Ó¿ÚÊµÏÖ ========== */
-/* ---- ½ÓÊÕ½Ó¿Ú ---- */
+/* ========== å…¬å¼€æŽ¥å£å®žçŽ° ========== */
+/* ---- æŽ¥æ”¶æŽ¥å£ ---- */
 u16 uart1_RxAvailable(void)
 {
     u16 rd, wr;
@@ -126,7 +126,7 @@ u16 uart1_ReadLine(u8 *buf, u16 bufSize)
     rd = rxRingRd;
     wr = rxRingWr;
 
-    /* ÔÚ»·ÐÎ»º³åÇøÖÐ²éÕÒ \r\n ÐòÁÐ */
+    /* åœ¨çŽ¯å½¢ç¼“å†²åŒºä¸­æŸ¥æ‰¾ \r\n åºåˆ— */
     idx = rd;
     while (idx != wr)
     {
@@ -148,11 +148,11 @@ u16 uart1_ReadLine(u8 *buf, u16 bufSize)
         return 0;
     }
 
-    /* ¼ÆËãÃüÁî³¤¶È£¨²»º¬ \r\n£© */
+    /* è®¡ç®—å‘½ä»¤é•¿åº¦ï¼ˆä¸å« \r\nï¼‰ */
     len = (idx >= rd) ? (idx - rd) : (UART1_RB_SIZE - rd + idx);
     if (len >= bufSize) len = bufSize - 1;
 
-    /* ¿½±´ÃüÁîÄÚÈÝµ½Êä³ö»º³åÇø */
+    /* æ‹·è´å‘½ä»¤å†…å®¹åˆ°è¾“å‡ºç¼“å†²åŒº */
     for (idx = 0; idx < len; idx++)
     {
         buf[idx] = rxRingBuf[rd];
@@ -160,7 +160,7 @@ u16 uart1_ReadLine(u8 *buf, u16 bufSize)
     }
     buf[len] = '\0';
 
-    /* Ìø¹ý \r\n */
+    /* è·³è¿‡ \r\n */
     rd = (rd + 2) & UART1_RB_MASK;
     rxRingRd = rd;
 
@@ -168,7 +168,7 @@ u16 uart1_ReadLine(u8 *buf, u16 bufSize)
     return len;
 }
 
-/* ---- ·¢ËÍ½Ó¿Ú ---- */
+/* ---- å‘é€æŽ¥å£ ---- */
 
 u16 uart1_TxFree(void)
 {
@@ -185,8 +185,8 @@ void uart1_WriteByte(u8 data)
     u16 wr, rd;
 
     /*
-     * ÏÈ¹ØÖÐ¶Ï¼ì²é+Ð´Èë»·ÐÎ»º³åÇø¡£
-     * Èç¹û»º³åÇøÂúÔòÍË»¯ÎªÖ±½ÓÂÖÑ¯Ó²¼þ·¢ËÍ??±£Ö¤ÓÀ²»×èÈû/ËÀËø¡£
+     * å…ˆå…³ä¸­æ–­æ£€æŸ¥+å†™å…¥çŽ¯å½¢ç¼“å†²åŒºã€‚
+     * å¦‚æžœç¼“å†²åŒºæ»¡åˆ™é€€åŒ–ä¸ºç›´æŽ¥è½®è¯¢ç¡¬ä»¶å‘é€??ä¿è¯æ°¸ä¸é˜»å¡ž/æ­»é”ã€‚
      */
     __disable_irq();
     wr = txRingWr;
@@ -194,15 +194,15 @@ void uart1_WriteByte(u8 data)
 
     if (!RING_FULL(wr, rd))
     {
-        /* »·ÐÎ»º³åÇøÓÐ¿ÕÎ»£ºÐ´Èë»º³åÇø£¬ÓÉ ISR Òì²½·¢ËÍ */
+        /* çŽ¯å½¢ç¼“å†²åŒºæœ‰ç©ºä½ï¼šå†™å…¥ç¼“å†²åŒºï¼Œç”± ISR å¼‚æ­¥å‘é€ */
         txRingBuf[wr] = data;
         txRingWr = (wr + 1) & UART1_RB_MASK;
         __enable_irq();
-        USART1->CR1 |= (1 << 7);   /* TXEIE = 1£¬´¥·¢ÖÐ¶Ï·¢ËÍ */
+        USART1->CR1 |= (1 << 7);   /* TXEIE = 1ï¼Œè§¦å‘ä¸­æ–­å‘é€ */
     }
     else
     {
-        /* »·ÐÎ»º³åÇøÂú£ºÍË»¯µ½ÂÖÑ¯Ó²¼þ·¢ËÍ£¨ÓÀ²»×èÈû£© */
+        /* çŽ¯å½¢ç¼“å†²åŒºæ»¡ï¼šé€€åŒ–åˆ°è½®è¯¢ç¡¬ä»¶å‘é€ï¼ˆæ°¸ä¸é˜»å¡žï¼‰ */
         u32 pollTimeout = 0x0000FFFFU;
         __enable_irq();
         while ((USART1->SR & 0x40) == 0)
@@ -228,7 +228,40 @@ void uart1_WriteString(const char *str)
     }
 }
 
-/* ========== ´®¿Ú1ÖÐ¶Ï·þÎñ³ÌÐò ========== */
+void uart1_WriteBytePolling(u8 data)
+{
+    u32 pollTimeout = 0x0003FFFFU;
+
+    while ((USART1->SR & 0x80U) == 0U)
+    {
+        if (pollTimeout-- == 0U)
+        {
+            return;
+        }
+    }
+
+    USART1->DR = data;
+
+    pollTimeout = 0x0003FFFFU;
+    while ((USART1->SR & 0x40U) == 0U)
+    {
+        if (pollTimeout-- == 0U)
+        {
+            return;
+        }
+    }
+}
+
+void uart1_WriteStringPolling(const char *str)
+{
+    while (*str)
+    {
+        uart1_WriteBytePolling((u8)*str);
+        str++;
+    }
+}
+
+/* ========== ä¸²å£1ä¸­æ–­æœåŠ¡ç¨‹åº ========== */
 
 void USART1_IRQHandler(void)
 {
@@ -239,12 +272,12 @@ void USART1_IRQHandler(void)
     OSIntEnter();
 #endif
 
-    /* ---- ½ÓÊÕÖÐ¶Ï£¨RXNE£© ---- */
+    /* ---- æŽ¥æ”¶ä¸­æ–­ï¼ˆRXNEï¼‰ ---- */
     if (USART1->SR & (1 << 5))
     {
         res = (u8)USART1->DR;
 
-        /* --- ¾É½Ó¿Ú£¨Ïòºó¼æÈÝ£© --- */
+        /* --- æ—§æŽ¥å£ï¼ˆå‘åŽå…¼å®¹ï¼‰ --- */
         if ((USART_RX_STA & 0x8000) == 0)
         {
             if (USART_RX_STA & 0x4000)
@@ -264,24 +297,24 @@ void USART1_IRQHandler(void)
             }
         }
 
-        /* --- ÐÂ½Ó¿Ú£ºÑ¹Èë½ÓÊÕ»·ÐÎ»º³åÇø£¨ÂúÔò¸²¸Ç×î¾ÉÊý¾Ý£© --- */
+        /* --- æ–°æŽ¥å£ï¼šåŽ‹å…¥æŽ¥æ”¶çŽ¯å½¢ç¼“å†²åŒºï¼ˆæ»¡åˆ™è¦†ç›–æœ€æ—§æ•°æ®ï¼‰ --- */
         wr = rxRingWr;
         rd = rxRingRd;
 
         rxRingBuf[wr] = res;
         wr = (wr + 1) & UART1_RB_MASK;
 
-        /* Èç¹û»º³åÇøÂú£¬¶ªÆú×î¾ÉµÄÊý¾Ý£¨¸²¸Ç£© */
+        /* å¦‚æžœç¼“å†²åŒºæ»¡ï¼Œä¸¢å¼ƒæœ€æ—§çš„æ•°æ®ï¼ˆè¦†ç›–ï¼‰ */
         if (wr == rd)
         {
-            rd = (rd + 1) & UART1_RB_MASK;  // ¶ªÆú×îÔçµÄÒ»¸ö×Ö½Ú
+            rd = (rd + 1) & UART1_RB_MASK;  // ä¸¢å¼ƒæœ€æ—©çš„ä¸€ä¸ªå­—èŠ‚
         }
 
         rxRingWr = wr;
         rxRingRd = rd;
     }
 
-    /* ---- ·¢ËÍÖÐ¶Ï£¨TXE£© ---- */
+    /* ---- å‘é€ä¸­æ–­ï¼ˆTXEï¼‰ ---- */
     if (USART1->SR & (1 << 7))
     {
         wr = txRingWr;
@@ -294,7 +327,7 @@ void USART1_IRQHandler(void)
         }
         else
         {
-            /* Ã»ÓÐÊý¾ÝÒª·¢ËÍ£¬¹Ø±Õ·¢ËÍÖÐ¶Ï */
+            /* æ²¡æœ‰æ•°æ®è¦å‘é€ï¼Œå…³é—­å‘é€ä¸­æ–­ */
             USART1->CR1 &= ~(1 << 7);  // TXEIE = 0
         }
     }
@@ -304,7 +337,7 @@ void USART1_IRQHandler(void)
 #endif
 }
 
-/* ========== ´®¿Ú1³õÊ¼»¯ ========== */
+/* ========== ä¸²å£1åˆå§‹åŒ– ========== */
 
 void uart_init(u32 pclk2,u32 bound)
 {  	 
@@ -316,30 +349,31 @@ void uart_init(u32 pclk2,u32 bound)
 	fraction=(temp-mantissa)*16; 
     mantissa<<=4;
 	mantissa+=fraction; 
-	RCC->APB2ENR|=1<<2;   //Ê¹ÄÜPORTA¿ÚÊ±ÖÓ  
-	RCC->APB2ENR|=1<<14;  //Ê¹ÄÜ´®¿ÚÊ±ÖÓ 
+	RCC->APB2ENR|=1<<2;   //ä½¿èƒ½PORTAå£æ—¶é’Ÿ  
+	RCC->APB2ENR|=1<<14;  //ä½¿èƒ½ä¸²å£æ—¶é’Ÿ 
 	GPIOA->CRH&=0XFFFFF00F;
 	GPIOA->CRH|=0X000008B0;
 		  
-	RCC->APB2RSTR|=1<<14;   //¸´Î»´®¿Ú1
+	RCC->APB2RSTR|=1<<14;   //å¤ä½ä¸²å£1
 	RCC->APB2RSTR&=~(1<<14);
-	//²¨ÌØÂÊÉèÖÃ
+	//æ³¢ç‰¹çŽ‡è®¾ç½®
  	USART1->BRR=mantissa; 
-	USART1->CR1|=0X200C;  //1Î»Í£Ö¹,ÎÞÐ£ÑéÎ».
+	USART1->CR1|=0X200C;  //1ä½åœæ­¢,æ— æ ¡éªŒä½.
 
-    /* Çå¿Õ»·ÐÎ»º³åÇøË÷Òý */
+    /* æ¸…ç©ºçŽ¯å½¢ç¼“å†²åŒºç´¢å¼• */
     rxRingWr = 0;
     rxRingRd = 0;
     txRingWr = 0;
     txRingRd = 0;
 
 #if EN_USART1_RX
-	//Ê¹ÄÜ½ÓÊÕÖÐ¶Ï
-	USART1->CR1|=1<<8;    //PEÖÐ¶ÏÊ¹ÄÜ
-	USART1->CR1|=1<<5;    //RXNEIE£¨½ÓÊÕ»º³åÇø·Ç¿ÕÖÐ¶ÏÊ¹ÄÜ£©
-	MY_NVIC_Init(3,3,USART1_IRQn,2);//×é2£¬×îµÍÓÅÏÈ¼¶ 
+	//ä½¿èƒ½æŽ¥æ”¶ä¸­æ–­
+	USART1->CR1|=1<<8;    //PEä¸­æ–­ä½¿èƒ½
+	USART1->CR1|=1<<5;    //RXNEIEï¼ˆæŽ¥æ”¶ç¼“å†²åŒºéžç©ºä¸­æ–­ä½¿èƒ½ï¼‰
+	MY_NVIC_Init(3,3,USART1_IRQn,2);//ç»„2ï¼Œæœ€ä½Žä¼˜å…ˆçº§ 
 #endif
 }
+
 
 
 

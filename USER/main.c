@@ -31,6 +31,7 @@
 #include "Lcd12864.h"
 
 #define HW_USB_DP_PORT  A,12
+#define APP_TRACE_MARK_ADDR 0x2000FFF0U
 
 extern volatile u32 g_wcidReqCnt[8];
 extern volatile u32 g_descReqCnt[4];
@@ -51,6 +52,8 @@ void usb_port_set(u8 enable)
 int main(void)
 {
     u8 i = 0;
+    u32 resetFlags;
+    u32 appTraceMark;
 
     Stm32_Clock_Init(6);
     delay_init(72);
@@ -58,17 +61,31 @@ int main(void)
 
     LED_Init();
 
-    printf("SystemClk:%ld\r\n", 72000000L);
+    resetFlags = RCC->CSR;
+    appTraceMark = *(volatile u32 *)APP_TRACE_MARK_ADDR;
+    printf("BOOTDBG-4 SystemClk:%ld\r\n", 72000000L);
+    printf("BOOT TRACE: mark=0x%08lX\r\n", (unsigned long)appTraceMark);
+    printf("BOOT RESET: CSR=0x%08lX\r\n", (unsigned long)resetFlags);
+    printf("BOOT RESET: PIN=%u POR=%u SFT=%u IWDG=%u WWDG=%u LPWR=%u\r\n",
+           (unsigned int)((resetFlags & RCC_CSR_PINRSTF) ? 1U : 0U),
+           (unsigned int)((resetFlags & RCC_CSR_PORRSTF) ? 1U : 0U),
+           (unsigned int)((resetFlags & RCC_CSR_SFTRSTF) ? 1U : 0U),
+           (unsigned int)((resetFlags & RCC_CSR_IWDGRSTF) ? 1U : 0U),
+           (unsigned int)((resetFlags & RCC_CSR_WWDGRSTF) ? 1U : 0U),
+           (unsigned int)((resetFlags & RCC_CSR_LPWRRSTF) ? 1U : 0U));
+    RCC->CSR |= RCC_CSR_RMVF;
 
-    printf("STEP: eeprom\r\n");
+    printf("Boot STEP: eeprom\r\n");
     SPI_EEPROM_Init();
-    printf("STEP: bootchk\r\n");
+    printf("Boot STEP: bootchk\r\n");
     if (!stkShouldEnterBootloader())
     {
+        printf("Boot STEP: apptry\r\n");
         (void)stkTryStartApplication();
+        printf("Boot STEP: appret\r\n");
     }
 
-    printf("STEP: usbinit\r\n");
+    printf("Boot STEP: usbinit\r\n");
     usb_port_set(0);
     delay_ms(300);
 
@@ -78,13 +95,14 @@ int main(void)
 
     delay_ms(50);
     usb_port_set(1);
-    printf("STEP: usbready\r\n");
+    printf("Boot STEP: usbready\r\n");
 
     LCD_GPIO_Init();
     LCD_Init();
     LCD_DisplayString58(1, 12, "DIF Micro");
     LCD_DisplayGraphic(1, 1, 64, 64, bmp_defeng_Logo);
-    LCD_DisplayGB2312String(3, 9, "BootLoader");
+    LCD_DisplayGB2312String(3, 9, "Boot-");
+		LCD_DisplayGB2312String(4, 9, "Loading");
 
     while (1)
     {

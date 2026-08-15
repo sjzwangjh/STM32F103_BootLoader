@@ -20,6 +20,7 @@
 #include "hw_config.h"
 #include "eeprom.h"
 #include "usart.h"
+#include "usb_regs.h"
 #include <string.h>
 
 /* Defined in main.c: controls USB D+/transceiver. */
@@ -31,6 +32,8 @@ extern void usb_port_set(u8 enable);
 #define FLASH_APP_END       0x08080000U
 #define STK_FRAME_MAX       281U          /* header + body + checksum */
 #define NUM_SOURCES         3U            /* HID=0, CDC=1, WinUSB=2 */
+#define APP_TRACE_MARK_ADDR 0x2000FFF0U
+#define APP_TRACE_MARK_BOOT 0x424F4F54U   /* 'BOOT' */
 
 #define BOOT_LOAD_VERSION   "DFM 01.00.00-0000"
 #define EEPROM_BOOT_MODE_ADDR       0x0200U
@@ -97,6 +100,8 @@ static uint8_t appVectorLooksValid(void);
 static uint8_t appReadyToStart(void);
 static void markUpdateMode(void);
 static void markApplicationValid(void);
+static void bootPrepareJumpToApplication(void);
+static void bootStartApplication(uint32_t appStack, uint32_t appEntry);
 static void jumpToApplication(void);
 
 static void   flashUnlock(void);
@@ -113,6 +118,7 @@ static void stkDebugWriteHex32(uint32_t value);
 static void stkDebugPrintAddress(const char *tag, uint32_t addr);
 static const char *stkSourceName(uint8_t src);
 static void stkDebugTag(const char *tag, uint8_t src);
+static void bootJumpLog(const char *msg);
 #endif
 
 /* ??????????????????????????????????????????????????????????
@@ -174,9 +180,18 @@ uint8_t stkShouldEnterBootloader(void)
 uint8_t stkTryStartApplication(void)
 {
     if (!appReadyToStart()) {
+#if IS_DEBUG_USB
+        uart1_WriteString("Boot APP: not-ready\r\n");
+#endif
         return 0U;
     }
+#if IS_DEBUG_USB
+    uart1_WriteString("Boot APP: jump\r\n");
+#endif
     jumpToApplication();
+#if IS_DEBUG_USB
+    bootJumpLog("Boot APP: jump-return\r\n");
+#endif
     return 1U;
 }
 
@@ -542,6 +557,11 @@ static void stkDebugTag(const char *tag, uint8_t src)
     uart1_WriteString(stkSourceName(src));
     uart1_WriteString("]");
 }
+
+static void bootJumpLog(const char *msg)
+{
+    uart1_WriteStringPolling(msg);
+}
 #endif
 
 static uint8_t pageBufferWrite(uint32_t addr, const uint8_t *data, uint16_t len)
@@ -581,6 +601,9 @@ static uint8_t appVectorLooksValid(void)
     if ((appSp & APP_VECTOR_STACK_MASK) != APP_VECTOR_STACK_VALUE) {
         return 0U;
     }
+    if ((appPc & 0x1U) == 0U) {
+        return 0U;
+    }
     if (appEntry < APP_START_ADDER || appEntry >= FLASH_APP_END) {
         return 0U;
     }
@@ -606,25 +629,52 @@ static void markApplicationValid(void)
     SPI_EEPROM_WriteByte(EEPROM_BOOT_MODE_ADDR, EEPROM_BOOT_MODE_APP);
 }
 
+static void bootPrepareJumpToApplication(void)
+{
+#if IS_DEBUG_USB
+    bootJumpLog("Boot PREP: usb-off\r\n");
+#endif
+    /* Make the USB port look physically disconnected before the app
+     * reinitializes the device stack. */
+    usb_port_set(0);
+#if IS_DEBUG_USB
+    bootJumpLog("Boot PREP: delay\r\n");
+#endif
+    delay_ms(20);
+
+#if IS_DEBUG_USB
+    bootJumpLog("Boot PREP: irq-off\r\n");
+#endif
+    INTX_DISABLE();
+}
+
+__asm static void bootStartApplication(uint32_t appStack, uint32_t appEntry)
+{
+    MSR MSP, r0
+    BX  r1
+}
+
 static void jumpToApplication(void)
 {
     uint32_t appStack = *(volatile uint32_t *)APP_START_ADDER;
     uint32_t appEntry = *(volatile uint32_t *)(APP_START_ADDER + 4U);
-    void (*appResetHandler)(void);
 
     if (!appReadyToStart()) {
+#if IS_DEBUG_USB
+        bootJumpLog("Boot JUMP: guard-fail\r\n");
+#endif
         return;
     }
 
-    INTX_DISABLE();
-    delay_ms(10);
-    SysTick->CTRL = 0U;
-    SysTick->LOAD = 0U;
-    SysTick->VAL  = 0U;
-    MY_NVIC_SetVectorTable(0x08000000U, APP_START_ADDER - 0x08000000U);
-    appResetHandler = (void (*)(void))appEntry;
-    MSR_MSP(appStack);
-    appResetHandler();
+#if IS_DEBUG_USB
+    bootJumpLog("Boot JUMP: prep\r\n");
+    stkDebugPrintAddress("Boot APP: sp=", appStack);
+    stkDebugPrintAddress("Boot APP: pc=", appEntry);
+#endif
+    *(volatile uint32_t *)APP_TRACE_MARK_ADDR = APP_TRACE_MARK_BOOT;
+    bootPrepareJumpToApplication();
+    SCB->VTOR = APP_START_ADDER;
+    bootStartApplication(appStack, appEntry);
 }
 
 static uint8_t flashIsAppArea(uint32_t addr, uint16_t len)
